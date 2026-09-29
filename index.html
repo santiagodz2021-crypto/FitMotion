@@ -52,6 +52,9 @@ td button{border:0;background:none;color:var(--mut);font-size:18px;min-width:44p
 #sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end}#sheet[hidden]{display:none}
 .sheet-b{background:var(--card);width:100%;max-width:760px;margin:auto;border-radius:18px 18px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
 .sheet-b .actions{justify-content:flex-end}
+.daynav{display:flex;justify-content:space-between;align-items:center;font-size:18px}.daynav .chip{min-width:56px;font-size:20px}
+.bar{height:8px;background:var(--line);border-radius:4px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.stat small{font-size:13px;font-weight:400}
 </style>
 </head>
 <body>
@@ -66,13 +69,13 @@ const INIT={routine:{
 "Upper B":[["Press inclinado",3,"6–10"],["Jalón/dominadas",3,"8–12"],["Press de hombro",3,"8–12"],["Remo",3,"8–12"],["Elevaciones laterales",3,"10–15"],["Tríceps",2,"10–15"],["Bíceps",2,"10–15"]],
 "Lower B":[["Prensa",3,"8–12"],["Peso muerto rumano",3,"8–12"],["Extensión de cuádriceps",3,"10–15"],["Curl femoral",3,"10–15"],["Gemelos",3,"10–15"],["Abdomen",3,"10–20"]]
 },weights:[],waist:[],workouts:[]};
-const ORDER=["Upper A","Lower A","Upper B","Lower B"],NAVS=["Inicio","Entrenar","Progreso","Historial","Datos"],DAY=864e5;
+const ORDER=["Upper A","Lower A","Upper B","Lower B"],NAVS=["Inicio","Entrenar","Comidas","Progreso","Datos"],DAY=864e5;
 const $=s=>document.querySelector(s),app=$("#app"),navEl=$("#nav");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const today=()=>{const t=new Date();return new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const clone=x=>JSON.parse(JSON.stringify(x));
 function migrate(x){x=x&&typeof x==="object"?x:{};if(!x.routine||!Object.keys(x.routine).length)x.routine=clone(INIT.routine);
- ["weights","waist","workouts"].forEach(k=>{if(!Array.isArray(x[k]))x[k]=[]});x.workouts.forEach((w,i)=>{w.id=w.id||Date.now()+i;w.sets=w.sets||[]});return x}
+ ["weights","waist","workouts","meals"].forEach(k=>{if(!Array.isArray(x[k]))x[k]=[]});x.workouts.forEach((w,i)=>{w.id=w.id||Date.now()+i;w.sets=w.sets||[]});return x}
 let d;try{d=migrate(JSON.parse(localStorage.getItem("md")))}catch{d=migrate(null)}
 let dr={};try{dr=JSON.parse(localStorage.getItem("md_draft")||"{}")}catch{}
 let tab="Inicio";
@@ -109,12 +112,12 @@ function chart(a,key,u){
 
 /* ---------- vistas ---------- */
 function nav(){const cur=d.routine[tab]?"Entrenar":tab;navEl.innerHTML=NAVS.map(x=>`<button class="${cur===x?"on":""}" onclick="go('${x}')">${x}</button>`).join("")}
-function go(x){tab=x;nav();render();scrollTo(0,0)}
-function render(){keepAwake(!!d.routine[tab]);tab==="Inicio"?home():tab==="Entrenar"?pick():d.routine[tab]?train(tab):tab==="Progreso"?progress():tab==="Historial"?histView():settings()}
+function go(x){if(x==="Comidas")mday=today();tab=x;nav();render();scrollTo(0,0)}
+function render(){keepAwake(!!d.routine[tab]);tab==="Inicio"?home():tab==="Entrenar"?pick():d.routine[tab]?train(tab):tab==="Comidas"?meals():tab==="Progreso"?progress():settings()}
 function home(){
  const w=d.weights.at(-1),z=d.waist.at(-1),t=trend(d.weights),lw=d.workouts.at(-1),nx=ORDER[(ORDER.indexOf(lw?.name)+1)%4],
  wk=d.workouts.filter(x=>Date.now()-Date.parse(x.date)<=7*DAY).length,ex=localStorage.getItem("md_export"),
- stale=(d.weights.length||d.workouts.length)&&(!ex||Date.now()-Date.parse(ex)>14*DAY);
+ stale=(d.weights.length||d.workouts.length||d.meals.length)&&(!ex||Date.now()-Date.parse(ex)>14*DAY);
  app.innerHTML=`<section class="card next"><span class="muted" style="color:inherit;opacity:.8">${lw?"Siguiente sesión":"Empieza por"}</span><h2>${nx}</h2><button class="btn" onclick="go('${nx}')">Entrenar</button></section>
  ${stale?`<section class="card warn"><h3>Haz una copia de seguridad</h3><p class="muted">Tus datos viven solo en este dispositivo. ${ex?"Tu última copia es del "+ex+".":"Aún no has exportado ninguna copia."}</p><button class="btn secondary" onclick="go('Datos')">Ir a Datos</button></section>`:""}
  <section class="card"><h2>Resumen</h2><div class="grid">
@@ -168,6 +171,36 @@ function fill(i,mode){
   const src=mode==="first"?{kg:q("k",0).value,reps:q("r",0).value,rir:q("q",0).value}:L&&(L[s]||L.at(-1));if(!src)return;
   [["k",src.kg],["r",src.reps],["q",src.rir]].forEach(([c,v])=>{if(v==null||v==="")return;const el=q(c,s);el.value=v;(dr[n]??={})[el.dataset.f]=String(v)})}
  saveDr()}
+let mday=today();
+function meals(){
+ const L=d.meals.filter(m=>m.date===mday),sum=k=>L.reduce((s,m)=>s+(m[k]||0),0),K=sum("kcal"),P=sum("p"),g=d.goal||{},
+ bar=(v,t,u)=>`<div class="stat"><span class="muted">${u}</span><b>${Math.round(v)}${t?` <small class="muted">/ ${t}</small>`:""}</b>${t?`<div class="bar"><i style="width:${Math.min(100,v/t*100).toFixed(0)}%"></i></div>`:""}</div>`,
+ c={},days={};
+ d.meals.filter(m=>Date.now()-Date.parse(m.date)<=30*DAY).forEach(m=>{const k=[m.name,m.kcal,m.p||0].join("|");c[k]=(c[k]||0)+1});
+ const rec=Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,8).map(x=>x[0].split("|"));
+ d.meals.filter(m=>m.date<=mday&&Date.parse(mday)-Date.parse(m.date)<7*DAY).forEach(m=>{days[m.date]=(days[m.date]||0)+m.kcal});
+ const nd=Object.keys(days).length,avg=nd?Math.round(Object.values(days).reduce((s,x)=>s+x,0)/nd):0;
+ app.innerHTML=`<section class="card"><div class="daynav"><button class="chip" onclick="shiftDay(-1)" aria-label="Día anterior">‹</button><b>${mday===today()?"Hoy":mday}</b><button class="chip" onclick="shiftDay(1)" aria-label="Día siguiente">›</button></div>
+ <div class="grid" style="margin-top:10px">${bar(K,g.kcal,"Calorías (kcal)")}${bar(P,g.p,"Proteína (g)")}</div>
+ <p class="muted" style="margin:10px 0 0">${nd?`Media de los ${nd} día${nd>1?"s":""} con registro en los últimos 7: ${avg} kcal.`:"Aún no hay registros en los últimos 7 días."}</p></section>
+ <section class="card"><h2>Añadir comida</h2>
+ ${rec.length?`<p class="muted">Recientes: toca para repetir</p><div class="chips">${rec.map(([n,k,p])=>`<button class="chip" data-n="${esc(n)}" data-k="${k}" data-p="${p}" onclick="quick(this)">${esc(n)} · ${k} kcal</button>`).join("")}</div>`:""}
+ <label for="fn">Nombre</label><input id="fn" type="text" enterkeyhint="next" placeholder="Ej. Arroz con pollo">
+ <div class="grid"><div><label for="fk">kcal</label><input id="fk" type="number" inputmode="numeric" placeholder="450"></div><div><label for="fp">Proteína (g)</label><input id="fp" type="number" inputmode="decimal" placeholder="35"></div></div>
+ <div class="actions"><button class="btn" onclick="addMeal()">Añadir</button></div></section>
+ <section class="card"><h2>Comidas del día</h2>${L.length?`<table><tr><th>Comida</th><th>kcal</th><th>Prot.</th><th></th></tr>${L.map(m=>`<tr><td>${esc(m.name)}</td><td>${m.kcal}</td><td>${m.p||"—"}</td><td><button aria-label="Borrar" onclick="delMeal(${m.id})">✕</button></td></tr>`).join("")}</table>`:`<p class="muted">Nada registrado este día. Añade la primera comida arriba.</p>`}</section>
+ <section class="card"><h2>Objetivo diario</h2><p class="muted">Opcional. Déjalo vacío si prefieres no usar objetivos.</p><div class="grid"><div><label for="gk">kcal</label><input id="gk" type="number" inputmode="numeric" value="${g.kcal||""}"></div><div><label for="gp">Proteína (g)</label><input id="gp" type="number" inputmode="numeric" value="${g.p||""}"></div></div><div class="actions"><button class="btn secondary" onclick="saveGoal()">Guardar objetivo</button></div></section>`}
+function addMeal(n,k,p){
+ if(n===undefined){n=$("#fn").value;k=$("#fk").value;p=$("#fp").value}
+ n=String(n).replace(/\|/g,"/").trim().slice(0,60)||"Comida";k=Math.round(parseFloat(k));p=parseFloat(p)||0;
+ if(!(k>=0&&k<=5000))return toast("Introduce las kcal (entre 0 y 5000)");if(!(p>=0&&p<=500))return toast("La proteína debe estar entre 0 y 500 g");
+ d.meals.push({id:Date.now(),date:mday,name:n,kcal:k,p:Math.round(p*10)/10});if(save()){toast("Comida añadida");meals()}}
+function quick(el){addMeal(el.dataset.n,el.dataset.k,el.dataset.p)}
+async function delMeal(id){if(!await ask("¿Borrar esta comida?","Borrar"))return;d.meals=d.meals.filter(m=>m.id!==id);save();meals()}
+function shiftDay(n){const t=new Date(mday+"T12:00:00");t.setDate(t.getDate()+n);const x=new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10);if(x>today())return;mday=x;meals()}
+function saveGoal(){const k=parseInt($("#gk").value)||0,p=parseInt($("#gp").value)||0;
+ if((k&&(k<800||k>8000))||(p&&(p<20||p>500)))return toast("Revisa los valores del objetivo");
+ d.goal=(k||p)?{kcal:k,p}:null;if(save()){toast("Objetivo guardado");meals()}}
 let wl=null;
 async function keepAwake(on){try{if(on&&!wl){wl=await navigator.wakeLock.request("screen");wl.addEventListener("release",()=>{wl=null})}else if(!on&&wl){await wl.release();wl=null}}catch{}}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&d.routine[tab])keepAwake(true)});
@@ -179,9 +212,10 @@ function progress(){
  <section class="card"><h2>Cintura</h2>${chart(d.waist,"cm","cm")}</section>
  <section class="card"><h2>Mejores marcas</h2>${rows.length?`<table><tr><th>Ejercicio</th><th>Mejor serie</th><th>1RM est.</th></tr>${rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.kg}×${v.reps}</td><td>${v.e.toFixed(1)} kg</td></tr>`).join("")}</table><p class="muted" style="margin-top:8px">1RM estimado con la fórmula de Epley, solo series de 12 reps o menos.</p>`:`<p class="muted">Guarda sesiones para ver tus mejores marcas.</p>`}</section>
  <section class="card"><h2>Pesos registrados</h2>${tbl("weights","kg","kg")}</section>
- <section class="card"><h2>Cintura registrada</h2>${tbl("waist","cm","cm")}</section>`}
-function histView(){
- app.innerHTML=d.workouts.length?d.workouts.slice().reverse().map(w=>{const g={};w.sets.forEach(s=>(g[s.exercise]??=[]).push(s));
+ <section class="card"><h2>Cintura registrada</h2>${tbl("waist","cm","cm")}</section>
+ <h2 style="margin:18px 4px 10px">Historial de sesiones</h2>${histHTML()}`}
+function histHTML(){
+ return d.workouts.length?d.workouts.slice().reverse().map(w=>{const g={};w.sets.forEach(s=>(g[s.exercise]??=[]).push(s));
   return `<section class="card"><h2>${esc(w.name)} <span class="badge">${w.date}</span></h2>${Object.entries(g).map(([k,v])=>`<p><b>${esc(k)}</b><br><span class="muted">${v.map(s=>s.kg+"×"+s.reps+(s.rir!=null?" @"+s.rir:"")).join(" · ")}</span></p>`).join("")}${w.notes?`<div class="note">${esc(w.notes)}</div>`:""}<div class="actions"><button class="btn secondary" onclick="delW(${w.id})">Borrar sesión</button></div></section>`}).join(""):`<section class="card"><h2>Historial</h2><p class="muted">Aún no has guardado ninguna sesión. Elige una rutina y registra tus series.</p></section>`}
 async function delW(id){if(!await ask("¿Borrar esta sesión?","Borrar"))return;d.workouts=d.workouts.filter(w=>w.id!==id);save();render()}
 function settings(){
